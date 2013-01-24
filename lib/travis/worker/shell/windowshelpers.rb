@@ -5,75 +5,24 @@ require 'filtered_string'
 module Travis
   class Worker
     module Shell
-      module Helpers
-        def export(name, value, options = nil)
-          return unless name
-          if true #iswindows
-            with_timeout("SETX #{name} #{value}", 3) do
-              execute(*["SETX #{name} #{value}", options].compact)
-            end
-          else
-            with_timeout("export #{name} #{value}", 3) do
-                execute(*["export #{name} #{value}", options].compact)
-            end
-          end
-        end
-
-        def export_line(line, options = nil)
-          return unless line
-
-          if line =~ /^TRAVIS_/
-            options ||= {}
-            options[:echo] = false
-          end
-
-          secure = line.sub!(/^SECURE /, '')
-          filtered = if secure
-            ::Travis::Helpers.obfuscate_env_vars(line)
-          else
-            line
-          end
-
-          line = FilteredString.new(line, filtered)
-          line = line.mutate("export %s", line)
-          line = line.to_s unless secure
-
-          #with_timeout(line, 3) do
-          #  execute(*[line, options].compact)
-          #end
-        end
-
+      module WindowsHelpers
         def chdir(dir)
-          if true #iswindows
-            execute("mkdir #{dir}", :echo => false)
-          else
-            execute("mkdir -p #{dir}", :echo => false)
-          end
+          dir = dir.gsub("/","\\")
+          execute("if(!(Test-Path #{dir})) {mkdir #{dir} | out-null} ", :echo => false)
           execute("cd #{dir}")
+          execute("[System.IO.Directory]::SetCurrentDirectory($PWD)")
         end
 
         def cwd
-          if true #iswindows
-            evaluate('echo %cd%').to_s.strip
-          else
-            evaluate('pwd').to_s.strip
-          end
+            evaulate_cmd("echo %cd%")
         end
 
         def file_exists?(filename)
-          if true #iswindows
             execute("Test-Path #{filename}", :echo => false)
-          else
-            execute("test -f #{filename}", :echo => false)
-          end
         end
 
         def directory_exists?(dirname)
-            if true #iswindows
-                execute("Test-Path #{dirname}", :echo => false)
-            else
-                execute("test -d #{dirname}", :echo => false)
-            end
+            execute("Test-Path #{dirname}", :echo => false)
         end
 
         # Executes a command within the ssh shell, returning true or false depending
@@ -89,6 +38,13 @@ module Travis
           with_timeout(command, options[:stage]) do
             command = echoize(command, &block) unless options[:echo] == false
             exec(_unfiltered(command)) { |p, data| buffer << data if data != nil } == 0
+          end
+        end
+
+        def execute_cmd(command, options = {}, &block)
+          with_timeout(command, options[:stage]) do
+            command = echoize_cmd(command, &block) unless options[:echo] == false
+            exec_cmd(_unfiltered(command)) { |p, data| buffer << data if data != nil } == 0
           end
         end
 
@@ -111,12 +67,23 @@ module Travis
           result
         end
 
+        def evaluate_cmd(command, options = {})
+          result = ''
+          command = echoize_cmd(command) if options[:echo]
+          status = exec_cmd(command) do |p, data|
+            result << data
+            buffer << data if options[:echo]
+          end
+          raise("command '#{command}' failed: '#{result}'") unless status == 0
+          result
+        end
+
         def echo(output, options = {})
           options[:force] ? buffer.send(:concat, output) : buffer << output
         end
 
         def terminate(message)
-          execute("sudo shutdown -n now #{message}")
+          execute_cmd("shutdown /s /t 1 /c \"#{message}\" /f /d p:4:1")
         end
 
         # Formats a shell command to be echod and executed by a ssh session.
@@ -124,11 +91,21 @@ module Travis
         # cmd - command to format.
         #
         # Returns the cmd formatted.
+        def echoize_cmd(cmd, options = {})
+          commands = [cmd].flatten.map { |cmd| cmd.respond_to?(:split) ? cmd.split("\n") : cmd }
+          commands.flatten.map do |cmd|
+            echo = block_given? ? yield(cmd) : cmd
+            echo = encode_powershell("Write-Host \"$ "+echo.gsub("\"","`\"")+"\"")
+            "powershell -encodedCommand #{echo}\n#{_unfiltered(cmd)}"
+          end.join("\n")
+        end
+
         def echoize(cmd, options = {})
           commands = [cmd].flatten.map { |cmd| cmd.respond_to?(:split) ? cmd.split("\n") : cmd }
           commands.flatten.map do |cmd|
-            echo = (block_given? ? yield(cmd) : cmd).gsub("\"","\\\"")
-            "echo \"$ #{echo}\"\n#{_unfiltered(cmd)}"
+            echo = block_given? ? yield(cmd) : cmd
+            echo = echo.gsub("\"","`\"")
+            "Write-Host \"$ #{echo}\"\n#{_unfiltered(cmd)}"
           end.join("\n")
         end
 
@@ -154,7 +131,7 @@ module Travis
           if stage.is_a?(Numeric)
             stage
           else
-            config.timeouts[stage || :default] || config.timeouts[:default]
+            config.timeouts[stage || :default]
           end
         end
 

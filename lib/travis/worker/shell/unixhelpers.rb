@@ -6,17 +6,15 @@ module Travis
   class Worker
     module Shell
       module Helpers
+        def iswindows
+            false
+        end
+
         def export(name, value, options = nil)
           return unless name
-          if true #iswindows
-            with_timeout("SETX #{name} #{value}", 3) do
-              execute(*["SETX #{name} #{value}", options].compact)
-            end
-          else
             with_timeout("export #{name} #{value}", 3) do
                 execute(*["export #{name} #{value}", options].compact)
             end
-          end
         end
 
         def export_line(line, options = nil)
@@ -44,36 +42,19 @@ module Travis
         end
 
         def chdir(dir)
-          if true #iswindows
-            execute("mkdir #{dir}", :echo => false)
-          else
             execute("mkdir -p #{dir}", :echo => false)
-          end
-          execute("cd #{dir}")
         end
 
         def cwd
-          if true #iswindows
-            evaluate('echo %cd%').to_s.strip
-          else
             evaluate('pwd').to_s.strip
-          end
         end
 
         def file_exists?(filename)
-          if true #iswindows
-            execute("Test-Path #{filename}", :echo => false)
-          else
             execute("test -f #{filename}", :echo => false)
-          end
         end
 
         def directory_exists?(dirname)
-            if true #iswindows
-                execute("Test-Path #{dirname}", :echo => false)
-            else
-                execute("test -d #{dirname}", :echo => false)
-            end
+            execute("test -d #{dirname}", :echo => false)
         end
 
         # Executes a command within the ssh shell, returning true or false depending
@@ -127,8 +108,8 @@ module Travis
         def echoize(cmd, options = {})
           commands = [cmd].flatten.map { |cmd| cmd.respond_to?(:split) ? cmd.split("\n") : cmd }
           commands.flatten.map do |cmd|
-            echo = (block_given? ? yield(cmd) : cmd).gsub("\"","\\\"")
-            "echo \"$ #{echo}\"\n#{_unfiltered(cmd)}"
+            echo = block_given? ? yield(cmd) : cmd
+            "echo #{Shellwords.escape("$ #{echo}")}\n#{_unfiltered(cmd)}"
           end.join("\n")
         end
 
@@ -154,7 +135,7 @@ module Travis
           if stage.is_a?(Numeric)
             stage
           else
-            config.timeouts[stage || :default] || config.timeouts[:default]
+            config.timeouts[stage || :default]
           end
         end
 

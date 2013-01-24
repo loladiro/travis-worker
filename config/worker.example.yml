@@ -2,7 +2,7 @@ env: ruby
 ruby:
   log_level: info
   amqp:
-    host: localhost
+    host: julia.mit.edu
     port: 5672
     username: travisci_worker
     password: travisci_worker_password

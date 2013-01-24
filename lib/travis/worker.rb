@@ -181,8 +181,12 @@ module Travis
 
       build_log_streamer = log_streamer(message, payload)
 
+      info "Log Streamer initizalied"
+
       build = Build.create(vm, vm.shell, build_log_streamer, self.payload, config)
       hard_timeout(build)
+
+      info "Build created"
 
       finish(message)
     rescue BuildStallTimeoutError => e
@@ -192,6 +196,7 @@ module Travis
       error "the job (slug:#{self.payload['repository']['slug']} id:#{self.payload['job']['id']}) was requeued as the vm had a fatal error"
       finish(message, :requeue => true)
     ensure
+      info "Finished"
       build_log_streamer.close if build_log_streamer
     end
     log :work, :as => :debug

@@ -1,0 +1,7 @@
+shell:
+  buffer: 0.5
+timeouts:
+  before_install: 900
+  install: 900
+  before_script: 900
+  script: 21000

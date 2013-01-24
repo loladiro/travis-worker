@@ -67,15 +67,15 @@ module Travis
 
             require 'vboxjxpcom.jar'
 
-            java_import 'org.virtualbox_4_1.VirtualBoxManager'
-            java_import 'org.virtualbox_4_1.VBoxEventType'
-            java_import 'org.virtualbox_4_1.LockType'
-            java_import 'org.virtualbox_4_1.MachineState'
-            java_import 'org.virtualbox_4_1.IMachineStateChangedEvent'
-            java_import 'org.virtualbox_4_1.DeviceType'
-            java_import 'org.virtualbox_4_1.AccessMode'
-            java_import 'org.virtualbox_4_1.MediumType'
-            java_import 'org.virtualbox_4_1.SessionState'
+            java_import 'org.virtualbox_4_2.VirtualBoxManager'
+            java_import 'org.virtualbox_4_2.VBoxEventType'
+            java_import 'org.virtualbox_4_2.LockType'
+            java_import 'org.virtualbox_4_2.MachineState'
+            java_import 'org.virtualbox_4_2.IMachineStateChangedEvent'
+            java_import 'org.virtualbox_4_2.DeviceType'
+            java_import 'org.virtualbox_4_2.AccessMode'
+            java_import 'org.virtualbox_4_2.MediumType'
+            java_import 'org.virtualbox_4_2.SessionState'
           end
         end
 
@@ -104,7 +104,7 @@ module Travis
         #
         # Returns a Shell::Session.
         def shell
-          @shell ||= Shell::Session.new(name,
+          @shell ||= Shell::Powershell.new(name,
             :host => '127.0.0.1',
             :port => ssh_port,
             :username => ENV.fetch("TRAVIS_CI_ENV_USERNAME", 'travis'),
@@ -138,7 +138,7 @@ module Travis
         def prepare
           if requires_snapshot?
             info "Preparing vm #{name} ..."
-            restart { immutate }
+            restart #{ immutate }
             wait_for_boot
             pause
             snapshot
@@ -155,7 +155,7 @@ module Travis
           max_adapters.times do |i|
             adapter = machine.get_network_adapter(i)
 
-            port_details = adapter.nat_driver.redirects.detect do |redirect|
+            port_details = adapter.nat_engine.redirects.detect do |redirect|
               redirect.split(',').first == 'ssh'
             end
 
@@ -198,7 +198,7 @@ module Travis
 
           def close_sandbox
             power_off unless powered_off?
-          rescue org.virtualbox_4_1.VBoxException
+          rescue org.virtualbox_4_2.VBoxException
             `kill -9 #{vm_pid}`
             raise VmFatalError, 'The VM had trouble shutting down and has now been told off (forcefully killed), your build will be requeued shortly.'
           end
@@ -256,9 +256,11 @@ module Travis
           end
 
           def immutate
-            return if immutable?
-
             attachment = machine.medium_attachments.detect { |ma| ma.controller =~ /SATA/ }
+            if attachment == nil
+                raise VmFatalError, 'No storage devices attached to VM'
+            end
+            return if immutable?
 
             controller_name = attachment.controller
             medium_path     = attachment.medium.location.to_s
@@ -272,7 +274,7 @@ module Travis
           end
 
           def immutable?
-            machine.medium_attachments.detect { |ma| ma.controller =~ /SATA/ }.medium.type == MediumType::Immutable
+            machine.mediumAttachments.detect { |ma| ma.controller =~ /SATA/ }.medium.type == MediumType::Immutable
           end
 
           def detach_device(controller_name)
